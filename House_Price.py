@@ -219,7 +219,7 @@ customized_scatterplot(all_data_.SalePrice, all_data_.GrLivArea);
 
 # Modeling
 
-
+###
 #creating matrices for sklearn:
 X_train = all_data_[:train.shape[0]];
 X_test = all_data_[train.shape[0]:];
