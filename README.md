@@ -1,2 +1,2 @@
 # UCD_HousePrice
-This is a project code for UCD Assignment
+This is the code for UCD Assignment
