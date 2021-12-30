@@ -12,6 +12,12 @@ import pandas as pd;
 train = pd.read_csv('train.csv');
 test = pd.read_csv('test.csv');
 
+train_ID = train['Id'];
+test_ID = test['Id'];
+train.drop(['Id'], axis=1, inplace=True);
+test.drop(['Id'], axis=1, inplace=True);
+
+
 print(train.shape);
 print(test.shape);
 
@@ -21,7 +27,6 @@ print(test.shape);
 #print(train.describe().T);
 #print(train.info());
 #print(train.dtypes.value_counts());
-
 
 
 
@@ -88,19 +93,37 @@ fig = sns.boxplot(x=train['OverallQual'], y="SalePrice", data=data);
 fig.axis(ymin=0, ymax=800000);
 
 
+# Outliers Treatment
+print(customized_scatterplot(train.SalePrice, train.GrLivArea));
+train = train[train.GrLivArea < 4500];
+train.reset_index(drop = True, inplace = True);
+
+# Split features and labels
+train_labels = train['SalePrice'].reset_index(drop=True);
+train_features = train.drop(['SalePrice'], axis=1);
+test_features = test;
+
+# Combine train and test features in order to apply the feature transformation pipeline to the entire dataset
+all_data = pd.concat([train_features, test_features]).reset_index(drop=True);
+all_data.shape;
+
+
 #Missing Value Analysis
 
 #pip install missingno;
-import missingno as msno;
-print(train.isna().sum());
-print(msno.matrix(train));
+#pip install xgboost;
 
-total = train.isnull().sum().sort_values(ascending = False)[train.isnull().sum().sort_values(ascending = False) != 0];
-percent = (train.isnull().sum() / train.isnull().count()).sort_values(ascending = False)[(train.isnull().sum() / train.isnull().count()).sort_values(ascending = False) != 0];
+
+
+import missingno as msno;
+print(all_data.isna().sum());
+print(msno.matrix(all_data));
+
+total = all_data.isnull().sum().sort_values(ascending = False)[all_data.isnull().sum().sort_values(ascending = False) != 0];
+percent = (all_data.isnull().sum() / all_data.isnull().count()).sort_values(ascending = False)[(all_data.isnull().sum() / all_data.isnull().count()).sort_values(ascending = False) != 0];
 missing = pd.concat([total, percent], axis = 1, keys = ['Total', 'Percent']);
 print(missing);
 
-all_data = train;
 
 
         # Missing Value Treatment
@@ -206,38 +229,143 @@ all_data = all_data.drop(drop_features, axis = 1);
 
 
 
-# Outliers Treatment
-print(customized_scatterplot(all_data.SalePrice, all_data.GrLivArea));
-all_data_ = all_data[all_data.GrLivArea < 4500];
-all_data_.reset_index(drop = True, inplace = True);
-previous_train = all_data_.copy();
-customized_scatterplot(all_data_.SalePrice, all_data_.GrLivArea);
 
 
 
+###########################################
+#Encode Catagorical features
+all_features = pd.get_dummies(all_data).reset_index(drop=True);
 
+all_data=all_features;
 
+# Split labels
+X = all_data.iloc[:len(train_labels), :];
+X_test = all_data.iloc[len(train_labels):, :];
+X.shape, train_labels.shape, X_test.shape;
+
+"""
+# Finding numeric features
+numeric_dtypes = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64'];
+numeric = [];
+for i in X.columns:
+    if X[i].dtype in numeric_dtypes:
+        if i in ['TotalSF', 'Total_Bathrooms','Total_porch_sf','haspool','hasgarage','hasbsmt','hasfireplace']:
+            pass;
+        else:
+            numeric.append(i) ;
+            
+X = X.select_dtypes(exclude=['object']);
+"""
 # Modeling
 
 ###
 #creating matrices for sklearn:
-X_train = all_data_[:train.shape[0]];
-X_test = all_data_[train.shape[0]:];
-y = train.SalePrice;
 
 
-from sklearn.linear_model import Ridge, RidgeCV, ElasticNet, LassoCV, LassoLarsCV;
-from sklearn.model_selection import cross_val_score;
+##################################################
+from sklearn.linear_model import  Ridge, RidgeCV, ElasticNet, LassoCV, LassoLarsCV;
+from sklearn.model_selection import KFold, cross_val_score,RandomizedSearchCV;
+from sklearn.metrics import mean_squared_error;
+from xgboost import XGBRegressor;
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor, BaggingRegressor;
+# Setup cross validation folds
+kf = KFold(n_splits=12, random_state=42, shuffle=True);
+
+from sklearn import metrics;
+# Define error metrics/Validation function
+def rmsle(y, y_pred):
+    return np.sqrt(mean_squared_error(y, y_pred));
+
+def cv_rmse(model, X=X):
+    rmse = np.sqrt(-cross_val_score(model, X, train_labels, scoring="neg_mean_squared_error", cv=kf));
+    return (rmse);
 
 
-def rmse_cv(model):
-    rmse= np.sqrt(-cross_val_score(model, X_train, y, scoring="neg_mean_squared_error", cv = 5));
-    return(rmse);
+#model = XGBRegressor();
+#print("Training the XGBRegressor model on the train dataset")
+#model.fit(X,X_test);
 
-model_ridge = Ridge();
+#rf.fit(X,X_test);
+
+# XGBoost Regressor
+xgboost = XGBRegressor(learning_rate=0.01,
+                       n_estimators=6000,
+                       max_depth=4,
+                       min_child_weight=0,
+                       gamma=0.6,
+                       subsample=0.7,
+                       colsample_bytree=0.7,
+                       objective='reg:squarederror',
+                       nthread=-1,
+                       scale_pos_weight=1,
+                       seed=27,
+                       reg_alpha=0.00006,
+                       random_state=42);
+
+rf = RandomForestRegressor(n_estimators=1200,
+                          max_depth=15,
+                          min_samples_split=5,
+                          min_samples_leaf=5,
+                          max_features=None,
+                          oob_score=True,
+                          random_state=42);
 
 
-alphas = [0.05, 0.1, 0.3, 1, 3, 5, 10, 15, 30, 50, 75];
-cv_ridge = [rmse_cv(Ridge(alpha = alpha)).mean() 
-            for alpha in alphas];
+# Train Models
+scores = {};
+score = cv_rmse(xgboost);
+print("xgboost: {:.4f} ({:.4f})".format(score.mean(), score.std()));
+scores['xgb'] = (score.mean(), score.std());
+
+
+score = cv_rmse(rf);
+print("rf: {:.4f} ({:.4f})".format(score.mean(), score.std()));
+scores['rf'] = (score.mean(), score.std());
+
+#Fit the models/
+
+print('xgboost');
+xgb_model_full_data = xgboost.fit(X, train_labels);
+
+
+print('RandomForest');
+rf_model_full_data = rf.fit(X, train_labels);
+
+
+# Blend models in order to make the final predictions more robust to overfitting
+def blended_predictions(X):
+    return ((0.5 * xgb_model_full_data.predict(X)) + \
+            (0.5 * rf_model_full_data.predict(X))) ;
+
+
+#Predict the Model
+
+# Get final precitions from the blended model
+blended_score = rmsle(train_labels, blended_predictions(X));
+scores['blended'] = (blended_score, 0);
+print('RMSLE score on train data:');
+print(blended_score);
+
+
+# Hyper parameter tuning/Boosting
+
+params= {
+        "learning_rate": [0.01, 0.02, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30], 
+        "max_depth": [1, 3, 4, 5, 6, 10, 12,  15, 18], 
+        "min_child_weight": [1, 3, 5, 7], 
+        "gamma": [0.0, 0.1, 0.2, 0.3, 0.4], 
+        "colsample_bytree": [0.1, 0.2, 0.3, 0.4, 0.5, 0.7]
+        };
+
+random_search = RandomizedSearchCV(xgboost, param_distributions=params, n_iter=5, \
+                                      scoring='r2', n_jobs=-1, cv=5, verbose=3)
+random_search.fit(X,train_labels);
+print('Best parameters for the model are:-');
+print(random_search.best_estimator_);
+y_hyper_pred = random_search.predict(X);
+print(y_hyper_pred);
+hyper_mae = metrics.mean_absolute_error(train_labels, y_hyper_pred);
+print('MAE after hyper parameter tuning is: ', hyper_mae); 
+
+
 
